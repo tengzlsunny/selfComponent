@@ -1,0 +1,437 @@
+<template>
+  <div class="account_tree"
+       id="tree_id">
+    <div class="handler_tree"
+         ref="line"></div>
+    <Tree :data="treeData"
+          empty-text="No Data"
+          :render="renderFn"></Tree>
+    <pop-item class="pop_tree"
+              :popObj="popObj"
+              v-show="isPop"
+              @closePop="closePop">
+      <div slot="formContent">
+        <Form :model="formValidate"
+              ref="formValidate"
+              :rules="rules"
+              :label-width="140">
+          <Form-item label="Superior Department">
+            <Input v-model="formValidate.parentName"
+                   disabled />
+          </Form-item>
+          <Form-item label="Department Name"
+                     prop="name">
+            <Input v-model="formValidate.name"
+                   :maxlength="64"
+                   placeholder="Enter Department Name" />
+          </Form-item>
+          <Form-item label="Approver">
+            <Select v-model="formValidate.approver"
+                    clearable
+                    :disabled="this.popType === 'Add'"
+                    placeholder="Please select">
+              <Option v-for="item in approveList"
+                      :value="item.userId + ',' + item.userName"
+                      :key="item.userId">{{ item.userName }}</Option>
+            </Select>
+          </Form-item>
+          <Form-item class="btns">
+            <Button type="primary"
+                    :loading="btnLoading"
+                    @click="ok('formValidate')">Confirm</Button>
+            <Button @click="closePop"
+                    :loading="btnLoading">Cancel</Button>
+          </Form-item>
+        </Form>
+      </div>
+    </pop-item>
+  </div>
+</template>
+<script>
+import Pop from '../../../components/popPublic'
+export default {
+  props: ['menuCode'],
+  components: { 'pop-item': Pop },
+  data () {
+    return {
+      treeData: [],
+      id: '',
+      popObj: {
+        popStyle: {
+          width: '520px',
+          top: '300px'
+        },
+        title: 'Add department'
+      },
+      isPop: false,
+      formValidate: {
+        name: '',
+        parentName: '',
+        parentId: '',
+        approver: '',
+        id: ''
+      },
+      rules: { name: [{ required: true, message: 'Please Enter the Department Name', trigger: 'blur' }] },
+      popType: '',
+      popData: {},
+      btnLoading: false,
+      approveList: []
+    }
+  },
+  mounted () {
+    let obj = {
+      api: 'getDeptTree',
+      data: {}
+    }
+    this.getApi(obj, 'y', (json) => {
+      this.getTreeData(this.treeData, json, '0')
+    })
+
+    // initApp
+    this.init()
+  },
+  methods: {
+    // [init 配置可拖动]
+    init () {
+      var oRight = document.getElementById('sy_right')
+      var oAccount = document.getElementById('accout_id')
+      var oBottom = document.getElementById('tree_id')
+      var oLine = this.$refs.line
+      oLine.onmousedown = function (e) {
+        var disX = (e || e).clientX
+        oLine.left = oLine.offsetLeft
+        document.onmousemove = function (e) {
+          var iT = oLine.left + ((e || e).clientX - disX)
+          var maxT = oBottom.clientWight - oLine.offsetWidth
+          // 控制拖动距离
+          if (iT < 150 || iT > 320) {
+            return false
+          }
+          oLine.style.margin = 0
+          iT < 0 && (iT = 0)
+          iT > maxT && (iT = maxT)
+          oLine.style.left = iT - 4 + 'px'
+          oBottom.style.width = iT + 'px'
+          oRight.style.width = oAccount.clientWidth - iT + 'px'
+          return false
+        }
+        document.onmouseup = function () {
+          document.onmousemove = null
+          document.onmouseup = null
+          oLine.releaseCapture && oLine.releaseCapture()
+        }
+        oLine.setCapture && oLine.setCapture()
+        return false
+      }
+    },
+    renderFn (h, { root, node, data }) {
+      return h('span', {
+        class: 'ive-tree-1',
+        style: { background: data.id === this.id ? '#eaf4fe' : '#fff' }
+      }, [
+        h('span', [
+          h('Tooltip', {
+            props: {
+              transfer: true,
+              content: data.title,
+              placement: 'top',
+              maxWidth: 260
+            },
+            class: 'tooltip_tree'
+          }, [
+            h('span', {
+              style: { 'overflow': 'hidden', 'white-space': 'nowrap', 'text-overflow': 'ellipsis' },
+              on: {
+                click: () => { this.selectChange(data) }
+              }
+            }, data.title)
+          ]),
+          h('span', {
+            class: 'icon_span'
+          }, [
+            h('Icon', {
+              props: {
+                custom: 'iconfont iconadd'
+              },
+              class: 'icon_add',
+              style: {
+                display: this.menuCode ? 'inline-block' : 'none'
+              },
+              on: {
+                click: () => { this.addClick(data, 'Add') }
+              }
+            }),
+            h('Icon', {
+              props: {
+                custom: 'iconfont iconedit'
+              },
+              style: {
+                display: this.menuCode ? 'inline-block' : 'none'
+              },
+              on: {
+                click: () => { this.addClick(data, 'Modify') }
+              }
+            }),
+            h('Icon', {
+              props: {
+                custom: 'iconfont icondelete'
+              },
+              style: {
+                display: data.level !== '0' && this.menuCode ? 'inline-block' : 'none'
+              },
+              on: {
+                click: () => { this.remove(root, node, data) }
+              }
+            })
+          ])
+        ])
+      ])
+    },
+    // 获取树的数据
+    getTreeData (tree, data, index, parentName) {
+      for (let i in data) {
+        let obj = {
+          id: data[i].id,
+          title: data[i].name,
+          approver: data[i].approver,
+          approverName: data[i].approverName,
+          parentId: data[i].parentId,
+          level: index,
+          children: []
+        }
+        if (index === '0') {
+          this.id = data[i].id
+          obj.expand = true
+          this.$emit('on-right', obj)
+        }
+        if (parentName) obj.parentName = parentName
+        tree.push(obj)
+        if (data[i].children && data[i].children.length) {
+          this.getTreeData(tree[i].children, data[i].children, '', data[i].name)
+        }
+      }
+    },
+    addClick (data, type) {
+      this.popObj.title = type + ' department'
+      this.popType = type
+      this.popData = data
+      switch (type) {
+        case 'Add':
+          this.isPop = true
+          this.formValidate.parentName = data.title
+          this.formValidate.parentId = data.id
+          this.formValidate.name = ''
+          this.formValidate.approver = ''
+          break
+        case 'Modify':
+          this.isPop = true
+          this.formValidate.parentName = data.parentName
+          this.formValidate.parentId = data.parentId
+          this.formValidate.name = data.title && data.title.length > 64 ? data.title.substring(0, 64) : (data.title || '')
+          this.formValidate.id = data.id
+          let apprObj = {
+            api: 'groupLeaderList',
+            data: { deptId: data.id }
+          }
+          this.getApi(apprObj, 'n', (json) => {
+            this.approveList = JSON.parse(JSON.stringify(json))
+            this.formValidate.approver = data.approver + ',' + data.approverName
+          })
+          break
+      }
+    },
+    remove (root, node, data) {
+      if (data.children.length) {
+        this.$Message.destroy()
+        this.$Message.warning("You can't delete this department,because it includes subordinate department or Staff")
+        return
+      }
+      let obj = {
+        api: 'getDeptRemove',
+        data: {
+          id: data.id
+        }
+      }
+      this.getApi(obj, 'y', (json) => {
+        const parentKey = root.find(el => el === node).parent
+        const parent = root.find(el => el.nodeKey === parentKey).node
+        const index = parent.children.indexOf(data)
+        if (parent.children[index].id === this.id) {
+          this.id = parent.id
+          this.$emit('on-right', parent)
+        }
+        parent.children.splice(index, 1)
+        this.$emit('change-tree')
+        this.$Message.destroy()
+        this.$Message.success('Delete Success')
+      })
+    },
+    selectChange (row) {
+      this.id = row.id
+      this.$emit('on-right', row)
+    },
+    closePop () {
+      this.isPop = false
+      this.$refs.formValidate.resetFields()
+    },
+    ok (name) {
+      this.$refs[name].validate((valid) => {
+        if (valid) {
+          let obj = {}
+          let approver = ''
+          let approverName = ''
+          obj.name = this.formValidate.name
+          if (this.formValidate.approver) {
+            let appArr = this.formValidate.approver.split(',')
+            obj.approver = appArr[0]
+            approver = appArr[0]
+            obj.approverName = appArr[1]
+            approverName = appArr[1]
+          } else {
+            obj.approver = ''
+            obj.approverName = ''
+          }
+          if (this.popType === 'Add') {
+            obj.parentId = this.popData.id
+          } else {
+            obj.parentId = this.popData.parentId
+            obj.id = this.popData.id
+          }
+          let query = {
+            api: this.popType === 'Add' ? 'getDeptAdd' : 'getDeptModify',
+            data: obj
+          }
+          this.btnLoading = true
+          this.getApi(query, 'y', (json) => {
+            this.btnLoading = false
+            this.isPop = false
+            if (this.popType === 'Add') {
+              const children = this.popData.children || []
+              children.push({
+                id: json,
+                title: this.formValidate.name,
+                approver: approver,
+                approverName: approverName,
+                parentId: this.popData.id,
+                parentName: this.popData.title,
+                children: []
+              })
+              this.popData.children = children
+            } else {
+              this.popData.approver = approver
+              this.popData.approverName = approverName
+              this.popData.title = this.formValidate.name
+            }
+            this.$Message.destroy()
+            this.$Message.success(this.popType + ' Success')
+            this.$emit('change-tree')
+          })
+        } else {
+        }
+      })
+    },
+    // 接口调用
+    getApi (data, errorNotice, callback) {
+      this.$store.dispatch('fetchAllList', data).then(json => {
+        callback && callback(json)
+      }).catch(err => {
+        this.btnLoading = false
+        if (errorNotice === 'y') {
+          this.$Message.destroy()
+          this.$Message.error(err.stateMsg)
+        }
+      })
+    }
+  }
+}
+</script>
+<style lang="less" scoped>
+.account_tree {
+  width: 200px;
+  padding: 5px;
+  flex-shrink: 0;
+  overflow: hidden;
+  overflow-y: auto;
+  position: relative;
+  border-right: 1px solid #e8eaec;
+  .handler_tree {
+    width: 6px;
+    height: 100%;
+    opacity: 0;
+    position: absolute;
+    top: 0;
+    left: 196px;
+    cursor: col-resize;
+  }
+}
+.account_tree/deep/ .ive-tree-1 {
+  display: inline-block;
+  width: calc(~"100% - 16px");
+  box-sizing: border-box;
+  cursor: pointer;
+  padding: 2px;
+  height: 16px;
+  > span {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: center;
+    .icon_span {
+      display: none;
+      margin-right: 5px;
+      width: fit-content;
+      transition: all 0.5s;
+    }
+    i {
+      margin-left: 5px;
+      font-size: 12px;
+      margin-left: 5px;
+    }
+  }
+}
+.account_tree/deep/ .ive-tree-1:hover {
+  background: #eaf4fe !important;
+  .icon_span {
+    display: inline-block;
+  }
+}
+.account_tree/deep/ .icon_add {
+  transform: scale(0.9);
+}
+.account_tree/deep/ .ivu-tree-arrow i {
+  position: relative;
+  top: -2px;
+}
+.btns {
+  margin-top: 50px;
+  margin-bottom: 80px;
+}
+.btns/deep/ .ivu-form-item-content {
+  width: fit-content;
+  margin: 0 auto !important;
+}
+.btns/deep/ .ivu-form-item-content .ivu-btn-default {
+  margin-left: 20px;
+}
+.account_tree/deep/ .ivu-input[disabled],
+fieldset[disabled] .ivu-input {
+  color: #333;
+}
+.pop_tree/deep/ .ivu-select-dropdown {
+  max-height: 150px;
+}
+</style>
+<style lang="less">
+.tooltip_tree {
+  flex: 1;
+  display: inline-block;
+  overflow: hidden;
+}
+.tooltip_tree .ivu-tooltip-rel {
+  max-width: 100%;
+  width: fit-content;
+  display: inline-block;
+  overflow: hidden;
+  display: flex;
+}
+</style>
